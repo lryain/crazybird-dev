@@ -94,7 +94,6 @@
 #define SENSORS_GYRO_BIAS_CALCULATE_STDDEV
 
 // Buffer length for MPU9250 slave reads
-#define GPIO_INTA_MPU6500_IO CONFIG_MPU_PIN_INT
 #define SENSORS_MPU6500_BUFF_LEN    14
 #define SENSORS_MAG_BUFF_LEN        8
 #define SENSORS_BARO_BUFF_S_P_LEN   4
@@ -110,7 +109,6 @@
 #define GYRO_VARIANCE_THRESHOLD_X   (GYRO_VARIANCE_BASE)
 #define GYRO_VARIANCE_THRESHOLD_Y   (GYRO_VARIANCE_BASE)
 #define GYRO_VARIANCE_THRESHOLD_Z   (GYRO_VARIANCE_BASE)
-#define ESP_INTR_FLAG_DEFAULT 0
 
 typedef struct
 {
@@ -244,7 +242,7 @@ static void sensorsTask(void *param)
               (isMagnetometerPresent ? SENSORS_MAG_BUFF_LEN : 0) +
               (isBarometerPresent ? SENSORS_BARO_BUFF_LEN : 0));
 
-      i2cdevReadReg8(I2C0_DEV, MPU6500_ADDRESS_AD0_HIGH, MPU6500_RA_ACCEL_XOUT_H, dataLen, buffer);
+      i2cdevReadReg8(I2C3_DEV, MPU6500_ADDRESS_AD0_HIGH, MPU6500_RA_ACCEL_XOUT_H, dataLen, buffer);
       // these functions process the respective data and queue it on the output queues
       processAccGyroMeasurements(&(buffer[0]));
       if (isMagnetometerPresent)
@@ -353,8 +351,8 @@ static void sensorsDeviceInit(void)
   // Wait for sensors to startup
   while (xTaskGetTickCount() < 1000);
 
-  i2cdevInit(I2C0_DEV);
-  mpu6500Init(I2C0_DEV);
+  i2cdevInit(I2C3_DEV);
+  mpu6500Init(I2C3_DEV);
   if (mpu6500TestConnection() == true)
   {
     DEBUG_PRINT("MPU9250 I2C connection [OK].\n");
@@ -410,7 +408,7 @@ static void sensorsDeviceInit(void)
 
 
 #ifdef SENSORS_ENABLE_MAG_AK8963
-  ak8963Init(I2C0_DEV);
+  ak8963Init(I2C3_DEV);
   if (ak8963TestConnection() == true)
   {
     isMagnetometerPresent = true;
@@ -424,7 +422,7 @@ static void sensorsDeviceInit(void)
 #endif
 
 #ifdef SENSORS_ENABLE_PRESSURE_LPS25H
-  lps25hInit(I2C0_DEV);
+  lps25hInit(I2C3_DEV);
   if (lps25hTestConnection() == true)
   {
     lps25hSetEnabled(true);
@@ -513,50 +511,39 @@ static void sensorsTaskInit(void)
   STATIC_MEM_TASK_CREATE(sensorsTask, sensorsTask, SENSORS_TASK_NAME, NULL, SENSORS_TASK_PRI);
 }
 
-static void IRAM_ATTR sensors_inta_isr_handler(void *arg)
-{
-    portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
-    imuIntTimestamp = usecTimestamp(); //This function returns the number of microseconds since esp_timer was initialized
-    xSemaphoreGiveFromISR(sensorsDataReady, &xHigherPriorityTaskWoken);
-
-    if (xHigherPriorityTaskWoken) {
-        portYIELD_FROM_ISR();
-    }
-}
-
 static void sensorsInterruptInit(void)
 {
-  DEBUG_PRINTD("sensorsInterruptInit \n");
-    gpio_config_t io_conf = {
-        //interrupt of rising edge
-#if ESP_IDF_VERSION_MAJOR > 4
-        .intr_type = GPIO_INTR_POSEDGE,
-#else
-        .intr_type = GPIO_PIN_INTR_POSEDGE,
-#endif
-        //bit mask of the pins
-        .pin_bit_mask = (1ULL << GPIO_INTA_MPU6500_IO),
-        //set as input mode
-        .mode = GPIO_MODE_INPUT,
-        //disable pull-down mode
-        .pull_down_en = 0,
-        //enable pull-up mode
-        .pull_up_en = 0,
-    };
-    sensorsDataReady = xSemaphoreCreateBinary();
-    dataReady = xSemaphoreCreateBinary();
-    gpio_config(&io_conf);
-    //install gpio isr service
-    //portDISABLE_INTERRUPTS();
-    gpio_set_intr_type(GPIO_INTA_MPU6500_IO, GPIO_INTR_POSEDGE);
-    gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
-    //hook isr handler for specific gpio pin
-    gpio_isr_handler_add(GPIO_INTA_MPU6500_IO, sensors_inta_isr_handler, (void *)GPIO_INTA_MPU6500_IO);
-    //portENABLE_INTERRUPTS();
-    DEBUG_PRINTD("sensorsInterruptInit done \n");
+  GPIO_InitTypeDef GPIO_InitStructure;
+  EXTI_InitTypeDef EXTI_InitStructure;
 
-    //   FSYNC "shall not be floating, must be set high or low by the MCU"
+  sensorsDataReady = xSemaphoreCreateBinaryStatic(&sensorsDataReadyBuffer);
+  dataReady = xSemaphoreCreateBinaryStatic(&dataReadyBuffer);
 
+  // FSYNC "shall not be floating, must be set high or low by the MCU"
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_14;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_DOWN;
+  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+  GPIO_Init(GPIOC, &GPIO_InitStructure);
+  GPIO_ResetBits(GPIOC, GPIO_Pin_14);
+
+  // Enable the MPU6500 interrupt on PC13
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_13;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
+  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_DOWN;
+  GPIO_Init(GPIOC, &GPIO_InitStructure);
+
+  SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOC, EXTI_PinSource13);
+
+  EXTI_InitStructure.EXTI_Line = EXTI_Line13;
+  EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
+  EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
+  EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+  portDISABLE_INTERRUPTS();
+  EXTI_Init(&EXTI_InitStructure);
+  EXTI_ClearITPendingBit(EXTI_Line13);
+  portENABLE_INTERRUPTS();
 }
 
 void sensorsMpu9250Lps25hInit(void)

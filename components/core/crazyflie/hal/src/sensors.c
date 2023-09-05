@@ -56,6 +56,10 @@
 #include "sensors_mpu6050_hm5883L_ms5611.h"
 #endif
 
+#ifdef SENSOR_INCLUDED_MPU9250_LPS25H
+#include "sensors_mpu9250_lps25h.h"
+#endif
+
 typedef struct {
   SensorImplementation_t implements;
   void (*init)(void);

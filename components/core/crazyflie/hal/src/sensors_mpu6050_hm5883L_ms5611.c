@@ -79,7 +79,7 @@
 /**
  * Enable sensors on board 
  */
-// #define SENSORS_ENABLE_MAG_HM5883L
+#define SENSORS_ENABLE_MAG_HM5883L
 // #define SENSORS_ENABLE_PRESSURE_MS5611
 //#define SENSORS_ENABLE_RANGE_VL53L0X
 #define SENSORS_ENABLE_RANGE_VL53L1X
@@ -426,7 +426,7 @@ static void sensorsDeviceInit(void)
     // Delay until registers are reset
     vTaskDelay(M2T(100));
     // Set x-axis gyro as clock source
-    mpu6050SetClockSource(MPU6050_CLOCK_PLL_XGYRO);
+    mpu6050SetClockSource(MPU6050_CLOCK_INTERNAL);
     // Delay until clock is set and stable
     vTaskDelay(M2T(200));
     // Enable temp sensor
@@ -561,8 +561,8 @@ static void sensorsSetupSlaveRead(void)
 
     mpu6050SetI2CBypassEnabled(false);
     mpu6050SetWaitForExternalSensorEnabled(true);     // the slave data isn't so important for the state estimation
-    mpu6050SetInterruptMode(0);                       // active high
-    mpu6050SetInterruptDrive(0);                      // push pull
+    mpu6050SetInterruptMode(0);                       // active high = 0
+    mpu6050SetInterruptDrive(0);                      // push pull = 0
     mpu6050SetInterruptLatch(0);                      // latched until clear
     mpu6050SetInterruptLatchClear(1);                 // cleared on any register read
     mpu6050SetSlaveReadWriteTransitionEnabled(false); // Send a stop at the end of a slave read
@@ -652,7 +652,7 @@ static void sensorsInterruptInit(void)
         //disable pull-down mode
         .pull_down_en = 0,
         //enable pull-up mode
-        .pull_up_en = 1,
+        .pull_up_en = 0,
     };
     sensorsDataReady = xSemaphoreCreateBinary();
     dataReady = xSemaphoreCreateBinary();
